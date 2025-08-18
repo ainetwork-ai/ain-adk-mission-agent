@@ -156,6 +156,14 @@ Please select and answer the most appropriate intent name from the available int
 		thread?: ThreadObject,
 		intent?: Intent,
 	): AsyncGenerator<StreamEvent> {
+		const intentResult = await this.intentAction(query, intent!);
+		if (intentResult.sseEvent) {
+			yield {
+				event: intentResult.sseEvent.event as "mission_reward",
+				data: intentResult.sseEvent.data,
+			};
+		}
+
 		const systemPrompt = `
 Today is ${new Date().toLocaleDateString()}.
 
@@ -163,9 +171,15 @@ ${this.prompts?.agent || ""}
 
 ${this.prompts?.system || ""}
 
-${intent?.prompt || ""}
-	`.trim();
+<Intent>
+${intent?.name}
 
+${intentResult.prompt}
+
+<Intented Action Result>
+${JSON.stringify(intentResult.result)}
+	`.trim();
+		loggers.intentStream.debug("systemPrompt", { systemPrompt });
 		const modelInstance = this.modelModule.getModel();
 		const messages = modelInstance.generateMessages({
 			query,
@@ -294,6 +308,61 @@ ${intent?.prompt || ""}
 				break;
 			}
 		}
+	}
+
+	private async intentAction(
+		query: string,
+		intent: Intent,
+	): Promise<{
+		result: any;
+		prompt: string;
+		sseEvent?: {
+			event: string;
+			data: any;
+		};
+	}> {
+		const res: {
+			result: any;
+			prompt: string;
+			sseEvent?: { event: string; data: any };
+		} = { result: {}, prompt: intent.prompt || "" };
+
+		if (intent.name === "mission_start") {
+			res.result = {
+				mission_id: "1",
+				mission_name: "What season was Base launched in?",
+				answer: "Summer",
+			};
+		} else if (intent.name === "submit_answer") {
+			const isCorrect = query.toLowerCase().includes("summer");
+			res.result = {
+				mission_id: "1",
+				status: isCorrect ? "correct" : "incorrect",
+				reward: isCorrect ? 10 : undefined,
+				total_reward: isCorrect ? 10 : 0,
+			};
+			res.sseEvent = {
+				event: "mission_reward",
+				data: {
+					reward: res.result.reward,
+					total_reward: res.result.total_reward,
+				},
+			};
+		} else if (intent.name === "mission_reject") {
+			res.result = {
+				mission_id: "1",
+				status: "rejected",
+				reward: 0,
+			};
+		} else if (intent.name === "mission_skip") {
+			res.result = {
+				mission_id: "2",
+				mission_name: "Base has plans to issue its own native token?",
+				answer: "o",
+			};
+		}
+
+		return res;
 	}
 
 	/**

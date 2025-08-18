@@ -22,7 +22,8 @@ export type StreamEvent =
 			};
 	  }
 	| { event: "error"; data: { message: string } }
-	| { event: "thread_id"; data: ThreadMetadata };
+	| { event: "thread_id"; data: ThreadMetadata }
+	| { event: "mission_reward"; data: { reward: number; total_reward: number } };
 
 /**
  * Tool call delta for streaming tool invocations
