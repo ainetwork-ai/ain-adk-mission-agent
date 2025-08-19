@@ -4,6 +4,7 @@ interface Mission {
 	status: "active" | "completed" | "rejected" | "no_mission_left";
 	answer: string;
 	reward: number;
+	description: string;
 }
 
 export const MOCKED_MISSIONS: Record<string, Mission> = {
@@ -13,6 +14,8 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 		status: "active",
 		answer: "Summer",
 		reward: 2,
+		description:
+			"Base was officially launched in the summer of 2023, and the mainnet was launched on August 9, 2023. This marked a transition from the testing phase to general user access.",
 	},
 	"2": {
 		id: "2",
@@ -20,6 +23,8 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 		status: "active",
 		answer: "False",
 		reward: 1,
+		description:
+			"Coinbase has clearly stated that Base has no plans to issue a native token. Instead, Base aims to be a secure, developer-friendly layer 2 platform built on Ethereum, without a separate token.",
 	},
 	"3": {
 		id: "3",
@@ -27,6 +32,7 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 		status: "active",
 		answer: "Bring",
 		reward: 2,
+		description: `Base's mission is "Bring everyone onchain," representing the goal of expanding blockchain adoption and bringing billions of users into the on-chain economy.`,
 	},
 	"4": {
 		id: "4",
@@ -34,6 +40,8 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 		status: "active",
 		answer: "2",
 		reward: 1,
+		description:
+			"Base is a Layer 2 scaling solution built on Ethereum, leveraging the Optimism OP Stack. It provides faster and cheaper transactions while maintaining the security of Ethereum.",
 	},
 };
 
