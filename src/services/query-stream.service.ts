@@ -365,10 +365,11 @@ ${JSON.stringify(intentResult.result)}
 					(THREAD_REWARD_MAP[params.threadId] || 0) + curMission.reward;
 			}
 			res.result = {
-				mission_id: curMissionId,
-				status: isCorrect ? "correct" : "incorrect",
-				reward: isCorrect ? curMission.reward : undefined,
-				total_reward: THREAD_REWARD_MAP[params.threadId],
+				...curMission,
+				params: {
+					answer_status: isCorrect ? "correct" : "incorrect",
+					total_reward: THREAD_REWARD_MAP[params.threadId],
+				},
 			};
 			if (isCorrect) {
 				res.sseEvent = {
