@@ -51,6 +51,36 @@ export class QueryController {
 			return next(error);
 		}
 
+		const isTestMessage = message.startsWith("##");
+
+		if (isTestMessage) {
+			const testMessage = message.split("##")[1];
+			if (testMessage === "reward") {
+				const reward = 10;
+				res.write(
+					`event: mission_reward\ndata: ${JSON.stringify({ mission_id: "0", reward, total_reward: 10 })}\n\n`,
+				);
+				res.write(
+					`event: text_chunk\ndata: ${JSON.stringify({ delta: "You got 10 reward!" })}\n\n`,
+				);
+				res.end();
+				return;
+			}
+			if (testMessage.toLowerCase() === "mission") {
+				const missionId = "1";
+				const missionName = "What season was Base launched in?";
+				const answer = "Summer";
+				res.write(
+					`event: mission_reward\ndata: ${JSON.stringify({ mission_id: missionId, reward: 10, total_reward: 10 })}\n\n`,
+				);
+				res.write(
+					`event: text_chunk\ndata: ${JSON.stringify({ delta: `Correct! The answer is ${answer}` })}\n\n`,
+				);
+				res.end();
+				return;
+			}
+		}
+
 		const stream = this.queryStreamService.handleQueryStream(
 			{ type, userId, threadId },
 			message,
