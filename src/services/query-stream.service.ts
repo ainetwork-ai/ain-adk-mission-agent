@@ -340,17 +340,20 @@ ${JSON.stringify(intentResult.result)}
 		} = { result: {}, prompt: intent.prompt || "" };
 
 		if (intent.name === "mission_start") {
-			const lastMissionId = THREAD_MISSIONS_MAP[params.threadId];
-			res.result =
-				MOCKED_MISSIONS[
-					lastMissionId
-						? String(
-								(Number(lastMissionId) + 1) %
-									Object.keys(MOCKED_MISSIONS).length,
-							)
-						: "1"
-				];
-			THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
+			const nextMissionId = THREAD_MISSIONS_MAP[params.threadId]
+				? String(Number(THREAD_MISSIONS_MAP[params.threadId]) + 1)
+				: "1";
+			if (Number(nextMissionId) > Object.keys(MOCKED_MISSIONS).length) {
+				res.result = {
+					mission_id: "-1",
+					status: "no_mission_left",
+					reward: undefined,
+					total_reward: USER_REWARD_MAP[params.userId],
+				};
+			} else {
+				res.result = MOCKED_MISSIONS[nextMissionId];
+				THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
+			}
 		} else if (intent.name === "submit_answer") {
 			const curMissionId = THREAD_MISSIONS_MAP[params.threadId];
 			const curMission = MOCKED_MISSIONS[curMissionId];
