@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+	MOCKED_MISSIONS,
+	THREAD_MISSIONS_MAP,
+	USER_REWARD_MAP,
+} from "@/ mocked/missions";
 import { StatusCodes } from "http-status-codes";
 import type {
 	A2AModule,
@@ -153,10 +158,16 @@ Please select and answer the most appropriate intent name from the available int
 	public async *intentFulfilling(
 		query: string,
 		threadId: string,
+		userId: string,
 		thread?: ThreadObject,
 		intent?: Intent,
 	): AsyncGenerator<StreamEvent> {
-		const intentResult = await this.intentAction(query, intent!);
+		loggers.intentStream.debug("@@@@@@@ intent", { intent });
+		const intentResult = await this.intentAction(query, intent!, {
+			threadId,
+			userId,
+		});
+		loggers.intentStream.debug("intentResult", { intentResult });
 		if (intentResult.sseEvent) {
 			yield {
 				event: intentResult.sseEvent.event as "mission_reward",
@@ -313,6 +324,7 @@ ${JSON.stringify(intentResult.result)}
 	private async intentAction(
 		query: string,
 		intent: Intent,
+		params: any,
 	): Promise<{
 		result: any;
 		prompt: string;
@@ -328,18 +340,32 @@ ${JSON.stringify(intentResult.result)}
 		} = { result: {}, prompt: intent.prompt || "" };
 
 		if (intent.name === "mission_start") {
-			res.result = {
-				mission_id: "1",
-				mission_name: "What season was Base launched in?",
-				answer: "Summer",
-			};
+			const lastMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			res.result =
+				MOCKED_MISSIONS[
+					lastMissionId
+						? String(
+								(Number(lastMissionId) + 1) %
+									Object.keys(MOCKED_MISSIONS).length,
+							)
+						: "1"
+				];
+			THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
 		} else if (intent.name === "submit_answer") {
-			const isCorrect = query.toLowerCase().includes("summer");
+			const curMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			const curMission = MOCKED_MISSIONS[curMissionId];
+			const isCorrect = query
+				.toLowerCase()
+				.includes(curMission.answer.toLowerCase());
+			if (isCorrect) {
+				USER_REWARD_MAP[params.userId] =
+					(USER_REWARD_MAP[params.userId] || 0) + curMission.reward;
+			}
 			res.result = {
-				mission_id: "1",
+				mission_id: curMissionId,
 				status: isCorrect ? "correct" : "incorrect",
-				reward: isCorrect ? 10 : undefined,
-				total_reward: isCorrect ? 10 : 0,
+				reward: isCorrect ? curMission.reward : undefined,
+				total_reward: USER_REWARD_MAP[params.userId],
 			};
 			res.sseEvent = {
 				event: "mission_reward",
@@ -349,17 +375,19 @@ ${JSON.stringify(intentResult.result)}
 				},
 			};
 		} else if (intent.name === "mission_reject") {
-			res.result = {
-				mission_id: "1",
-				status: "rejected",
-				reward: 0,
-			};
+			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			res.result = MOCKED_MISSIONS[currentMissionId];
+			THREAD_MISSIONS_MAP[params.threadId] = "0";
 		} else if (intent.name === "mission_skip") {
-			res.result = {
-				mission_id: "2",
-				mission_name: "Base has plans to issue its own native token?",
-				answer: "o",
-			};
+			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			res.result =
+				MOCKED_MISSIONS[
+					String(
+						(Number(currentMissionId) + 1) %
+							Object.keys(MOCKED_MISSIONS).length,
+					)
+				];
+			THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
 		}
 
 		return res;
@@ -459,7 +487,13 @@ ${JSON.stringify(intentResult.result)}
 		const intent = await this.intentTriggering(query, thread);
 
 		// 3. intent fulfillment
-		const stream = this.intentFulfilling(query, threadId, thread, intent);
+		const stream = this.intentFulfilling(
+			query,
+			threadId,
+			userId,
+			thread,
+			intent,
+		);
 
 		let finalResponseText = "";
 		for await (const event of stream) {
