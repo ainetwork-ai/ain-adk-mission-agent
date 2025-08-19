@@ -3,7 +3,7 @@ import {
 	MOCKED_MISSIONS,
 	THREAD_MISSIONS_MAP,
 	USER_REWARD_MAP,
-} from "@/ mocked/missions";
+} from "@/mocked/missions";
 import { StatusCodes } from "http-status-codes";
 import type {
 	A2AModule,
