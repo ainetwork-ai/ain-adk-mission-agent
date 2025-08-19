@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
 	MOCKED_MISSIONS,
 	THREAD_MISSIONS_MAP,
-	USER_REWARD_MAP,
+	THREAD_REWARD_MAP,
 } from "@/mocked/missions";
 import { StatusCodes } from "http-status-codes";
 import type {
@@ -348,7 +348,7 @@ ${JSON.stringify(intentResult.result)}
 					mission_id: "-1",
 					status: "no_mission_left",
 					reward: undefined,
-					total_reward: USER_REWARD_MAP[params.userId],
+					total_reward: THREAD_REWARD_MAP[params.threadId],
 				};
 			} else {
 				res.result = MOCKED_MISSIONS[nextMissionId];
@@ -361,22 +361,24 @@ ${JSON.stringify(intentResult.result)}
 				.toLowerCase()
 				.includes(curMission.answer.toLowerCase());
 			if (isCorrect) {
-				USER_REWARD_MAP[params.userId] =
-					(USER_REWARD_MAP[params.userId] || 0) + curMission.reward;
+				THREAD_REWARD_MAP[params.threadId] =
+					(THREAD_REWARD_MAP[params.threadId] || 0) + curMission.reward;
 			}
 			res.result = {
 				mission_id: curMissionId,
 				status: isCorrect ? "correct" : "incorrect",
 				reward: isCorrect ? curMission.reward : undefined,
-				total_reward: USER_REWARD_MAP[params.userId],
+				total_reward: THREAD_REWARD_MAP[params.threadId],
 			};
-			res.sseEvent = {
-				event: "mission_reward",
-				data: {
-					reward: res.result.reward,
-					total_reward: res.result.total_reward,
-				},
-			};
+			if (isCorrect) {
+				res.sseEvent = {
+					event: "mission_reward",
+					data: {
+						reward: res.result.reward,
+						total_reward: res.result.total_reward,
+					},
+				};
+			}
 		} else if (intent.name === "mission_reject") {
 			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
 			res.result = MOCKED_MISSIONS[currentMissionId];

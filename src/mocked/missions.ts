@@ -38,4 +38,4 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 };
 
 export const THREAD_MISSIONS_MAP: Record<string, string> = {};
-export const USER_REWARD_MAP: Record<string, number> = {};
+export const THREAD_REWARD_MAP: Record<string, number> = {};
