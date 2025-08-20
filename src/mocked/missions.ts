@@ -15,7 +15,7 @@ export const MOCKED_MISSIONS: Record<string, Mission> = {
 		answer: "Summer",
 		reward: 2,
 		description:
-			"Base was officially launched in the summer of 2023, and the mainnet was launched on August 9, 2023. This marked a transition from the testing phase to general user access.",
+			"The base mainnet officially launched in the summer of 2023, on August 9th. This marked a turning point in the testing phase, opening the platform to the general public. Summer-related events, such as Onchain Summer, are primarily held.",
 	},
 	"2": {
 		id: "2",
