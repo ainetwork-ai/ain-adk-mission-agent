@@ -354,7 +354,7 @@ ${JSON.stringify(intentResult.result)}
 				res.result = MOCKED_MISSIONS[nextMissionId];
 				THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
 			}
-		} else if (intent.name === "submit_answer") {
+		} else if (intent.name === "mission_submit_answer") {
 			const curMissionId = THREAD_MISSIONS_MAP[params.threadId];
 			const curMission = MOCKED_MISSIONS[curMissionId];
 			const isCorrect = query
@@ -376,11 +376,11 @@ ${JSON.stringify(intentResult.result)}
 					event: "mission_reward",
 					data: {
 						reward: res.result.reward,
-						total_reward: res.result.total_reward,
+						total_reward: res.result.params.total_reward,
 					},
 				};
 			}
-		} else if (intent.name === "mission_reject") {
+		} else if (intent.name === "mission_stop") {
 			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
 			res.result = MOCKED_MISSIONS[currentMissionId];
 			THREAD_MISSIONS_MAP[params.threadId] = "0";
