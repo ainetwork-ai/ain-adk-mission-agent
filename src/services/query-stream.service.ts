@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { StatusCodes } from "http-status-codes";
 import {
 	MOCKED_MISSIONS,
 	THREAD_MISSIONS_MAP,
 	THREAD_REWARD_MAP,
 } from "@/mocked/missions";
-import { StatusCodes } from "http-status-codes";
 import type {
 	A2AModule,
 	MCPModule,
@@ -455,6 +455,32 @@ ${JSON.stringify(intentResult.result)}
 		const { type, userId } = threadMetadata;
 		const queryStartAt = Date.now();
 		const threadMemory = this.memoryModule?.getThreadMemory();
+
+		// Debuging Messages
+		const isTestMessage = query.startsWith("##");
+		if (isTestMessage) {
+			const testMessage = query.split("##")[1].trim();
+			if (testMessage === "reward") {
+				const reward = 10;
+				yield {
+					event: "mission_reward",
+					data: {
+						reward,
+						total_reward: 10,
+					},
+				};
+			}
+			if (testMessage.toLowerCase() === "reset") {
+				await threadMemory?.deleteThread(userId, threadMetadata.threadId!);
+				yield {
+					event: "text_chunk",
+					data: {
+						delta: "Thread deleted",
+					},
+				};
+			}
+			return;
+		}
 
 		// 1. Load or create thread
 		let threadId = threadMetadata.threadId;
