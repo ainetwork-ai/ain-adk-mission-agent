@@ -461,6 +461,7 @@ ${JSON.stringify(intentResult.result)}
 		let thread: ThreadObject | undefined;
 		if (threadId) {
 			thread = await threadMemory?.getThread(userId, threadId);
+			loggers.intentStream.debug("thread", { thread });
 			if (!thread) {
 				throw new AinHttpError(StatusCodes.NOT_FOUND, "Thread not found");
 			}
