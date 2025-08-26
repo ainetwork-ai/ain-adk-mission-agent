@@ -343,8 +343,7 @@ ${JSON.stringify(intentResult.result)}
 			data: any;
 		};
 	}> {
-		const serverUrl =
-			process.env.SERVER_URL || "https://base-backend-dev.ainetwork.xyz";
+		const serverUrl = process.env.SERVER_URL;
 		const { userId, token } = params;
 		const res: {
 			result: any;
@@ -365,22 +364,32 @@ ${JSON.stringify(intentResult.result)}
 					},
 				);
 				const data = await response.json();
-				loggers.intentStream.debug("mission_start", { data });
-				const { missionId, description, content } = data;
-				res.result = { missionId, description, content };
+				loggers.intentStream.debug("mission_start", { mission: data.mission });
+				const { missionId, description, content } = data.mission;
+				if (missionId) {
+					res.result = { missionId, description, content };
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission left",
+						content: "No mission left",
+					};
+				}
 			} else if (intent.name === "mission_submit_answer") {
+				const body = {
+					missionId: "0000025", // FIXME(yoojin): temp mission id
+					answer: query,
+				};
 				const response = await fetch(`${serverUrl}/api/mission/answer`, {
 					method: "POST",
 					headers: {
 						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
 					},
-					body: JSON.stringify({
-						mission_id: "0000025",
-						answer: query,
-					}),
+					body: JSON.stringify(body),
 				});
 				const data = await response.json();
-				loggers.intentStream.debug("mission_answer", { data });
+				loggers.intentStream.debug("mission_answer", { data, body });
 				res.result = data;
 			} else if (intent.name === "mission_stop") {
 				// NOTE(yoojin): will be implemented later
