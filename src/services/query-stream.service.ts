@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { StatusCodes } from "http-status-codes";
-import {
-	MOCKED_MISSIONS,
-	THREAD_MISSIONS_MAP,
-	THREAD_REWARD_MAP,
-} from "@/mocked/missions";
+import { USER_REWARD_MAP } from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -67,11 +63,19 @@ export class QueryStreamService {
 	private async intentTriggering(
 		query: string,
 		thread: ThreadObject | undefined,
+		_intentName?: string,
 	): Promise<Intent | undefined> {
 		const modelInstance = this.modelModule.getModel();
 		const intentMemory = this.memoryModule?.getIntentMemory();
 		if (!intentMemory) {
 			return undefined;
+		}
+
+		if (_intentName) {
+			const intent = await intentMemory.getIntentByName(_intentName);
+			if (intent) {
+				return intent;
+			}
 		}
 
 		// 인텐트 목록 가져오기
@@ -159,6 +163,7 @@ Please select and answer the most appropriate intent name from the available int
 		query: string,
 		threadId: string,
 		userId: string,
+		token: string,
 		thread?: ThreadObject,
 		intent?: Intent,
 	): AsyncGenerator<StreamEvent> {
@@ -166,6 +171,7 @@ Please select and answer the most appropriate intent name from the available int
 		const intentResult = await this.intentAction(query, intent!, {
 			threadId,
 			userId,
+			token,
 		});
 		loggers.intentStream.debug("intentResult", { intentResult });
 		if (intentResult.sseEvent) {
@@ -333,69 +339,73 @@ ${JSON.stringify(intentResult.result)}
 			data: any;
 		};
 	}> {
+		const serverUrl = process.env.SERVER_URL;
+		const { userId, token } = params;
 		const res: {
 			result: any;
 			prompt: string;
 			sseEvent?: { event: string; data: any };
 		} = { result: {}, prompt: intent.prompt || "" };
 
-		if (intent.name === "mission_start") {
-			const nextMissionId = THREAD_MISSIONS_MAP[params.threadId]
-				? String(Number(THREAD_MISSIONS_MAP[params.threadId]) + 1)
-				: "1";
-			if (Number(nextMissionId) > Object.keys(MOCKED_MISSIONS).length) {
-				res.result = {
-					mission_id: "-1",
-					status: "no_mission_left",
-					reward: undefined,
-					total_reward: THREAD_REWARD_MAP[params.threadId],
-				};
-			} else {
-				res.result = MOCKED_MISSIONS[nextMissionId];
-				THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
-			}
-		} else if (intent.name === "mission_submit_answer") {
-			const curMissionId = THREAD_MISSIONS_MAP[params.threadId];
-			const curMission = MOCKED_MISSIONS[curMissionId];
-			const isCorrect = query
-				.toLowerCase()
-				.includes(curMission.answer.toLowerCase());
-			if (isCorrect) {
-				THREAD_REWARD_MAP[params.threadId] =
-					(THREAD_REWARD_MAP[params.threadId] || 0) + curMission.reward;
-			}
-			res.result = {
-				...curMission,
-				params: {
-					answer_status: isCorrect ? "correct" : "incorrect",
-					total_reward: THREAD_REWARD_MAP[params.threadId],
-				},
-			};
-			if (isCorrect) {
-				res.sseEvent = {
-					event: "mission_reward",
-					data: {
-						reward: res.result.reward,
-						total_reward: res.result.params.total_reward,
+		try {
+			if (intent.name === "mission_start") {
+				// FIXME(yoojin): category will be removed
+				const response = await fetch(
+					`${serverUrl}/api/mission/random?addr=${userId}`,
+					{
+						method: "GET",
+						headers: {
+							Authorization: `Bearer ${token}`,
+						},
 					},
+				);
+				const data = await response.json();
+				loggers.intentStream.debug("mission_start", { mission: data.mission });
+				const { missionId, description, content } = data.mission;
+				if (missionId) {
+					res.result = { missionId, description, content };
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission left",
+						content: "No mission left",
+					};
+				}
+			} else if (intent.name === "mission_submit_answer") {
+				const body = {
+					missionId: "0000025", // FIXME(yoojin): temp mission id
+					answer: query,
 				};
+				const response = await fetch(`${serverUrl}/api/mission/answer`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(body),
+				});
+				const data = await response.json();
+				loggers.intentStream.debug("mission_answer", { data, body });
+				res.result = data;
+				if (data.isCorrect && !!data.reward) {
+					USER_REWARD_MAP[params.userId] =
+						(USER_REWARD_MAP[params.userId] || 0) + data.reward;
+					res.sseEvent = {
+						event: "mission_reward",
+						data: {
+							reward: data.reward,
+							total_reward: USER_REWARD_MAP[params.userId],
+						},
+					};
+				}
+			} else if (intent.name === "mission_stop") {
+				// NOTE(yoojin): will be implemented later
+			} else if (intent.name === "mission_skip") {
+				// NOTE(yoojin): will be implemented later
 			}
-		} else if (intent.name === "mission_stop") {
-			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
-			res.result = MOCKED_MISSIONS[currentMissionId];
-			THREAD_MISSIONS_MAP[params.threadId] = "0";
-		} else if (intent.name === "mission_skip") {
-			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
-			res.result =
-				MOCKED_MISSIONS[
-					String(
-						(Number(currentMissionId) + 1) %
-							Object.keys(MOCKED_MISSIONS).length,
-					)
-				];
-			THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
+		} catch (err) {
+			loggers.intentStream.error("intentAction", { err });
 		}
-
 		return res;
 	}
 
@@ -451,6 +461,8 @@ ${JSON.stringify(intentResult.result)}
 			threadId?: string;
 		},
 		query: string,
+		token?: string,
+		intentName?: string,
 	): AsyncGenerator<StreamEvent> {
 		const { type, userId } = threadMetadata;
 		const queryStartAt = Date.now();
@@ -517,7 +529,7 @@ ${JSON.stringify(intentResult.result)}
 		]);
 
 		// 2. intent triggering
-		const intent = await this.intentTriggering(query, thread);
+		const intent = await this.intentTriggering(query, thread, intentName);
 
 		if (intent) {
 			yield {
@@ -533,6 +545,7 @@ ${JSON.stringify(intentResult.result)}
 			query,
 			threadId,
 			userId,
+			token!,
 			thread,
 			intent,
 		);
