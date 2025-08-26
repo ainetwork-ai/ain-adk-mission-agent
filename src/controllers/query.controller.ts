@@ -40,7 +40,7 @@ export class QueryController {
 		res: Response,
 		next: NextFunction,
 	) => {
-		const { type, threadId, message } = req.body;
+		const { type, threadId, message, intent } = req.body;
 		const userId = res.locals.userId;
 		const token = res.locals.token;
 
@@ -56,6 +56,7 @@ export class QueryController {
 			{ type, userId, threadId },
 			message,
 			token,
+			intent,
 		);
 
 		try {
