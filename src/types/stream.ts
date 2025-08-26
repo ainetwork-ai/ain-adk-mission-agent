@@ -23,6 +23,7 @@ export type StreamEvent =
 	  }
 	| { event: "error"; data: { message: string } }
 	| { event: "thread_id"; data: ThreadMetadata }
+	| { event: "intent"; data: { intent: string } }
 	| { event: "mission_reward"; data: { reward: number; total_reward: number } };
 
 /**

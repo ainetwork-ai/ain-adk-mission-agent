@@ -452,6 +452,6 @@ ${JSON.stringify(intentResult.result)}
 			},
 		]);
 
-		return { content: result.response };
+		return { content: result.response, intent: intent?.name };
 	}
 }

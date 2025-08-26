@@ -519,6 +519,15 @@ ${JSON.stringify(intentResult.result)}
 		// 2. intent triggering
 		const intent = await this.intentTriggering(query, thread);
 
+		if (intent) {
+			yield {
+				event: "intent",
+				data: {
+					intent: intent.name,
+				},
+			};
+		}
+
 		// 3. intent fulfillment
 		const stream = this.intentFulfilling(
 			query,
