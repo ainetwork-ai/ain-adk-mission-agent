@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { StatusCodes } from "http-status-codes";
-import {
-	MOCKED_MISSIONS,
-	THREAD_MISSIONS_MAP,
-	THREAD_REWARD_MAP,
-} from "@/mocked/missions";
+import { USER_REWARD_MAP } from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -391,6 +387,17 @@ ${JSON.stringify(intentResult.result)}
 				const data = await response.json();
 				loggers.intentStream.debug("mission_answer", { data, body });
 				res.result = data;
+				if (data.isCorrect && !!data.reward) {
+					USER_REWARD_MAP[params.userId] =
+						(USER_REWARD_MAP[params.userId] || 0) + data.reward;
+					res.sseEvent = {
+						event: "mission_reward",
+						data: {
+							reward: data.reward,
+							total_reward: USER_REWARD_MAP[params.userId],
+						},
+					};
+				}
 			} else if (intent.name === "mission_stop") {
 				// NOTE(yoojin): will be implemented later
 			} else if (intent.name === "mission_skip") {
