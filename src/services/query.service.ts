@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+	MOCKED_MISSIONS,
+	THREAD_MISSIONS_MAP,
+	THREAD_REWARD_MAP,
+} from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -48,6 +53,84 @@ export class QueryService {
 		this.mcpModule = mcpModule;
 		this.memoryModule = memoryModule;
 		this.prompts = prompts;
+	}
+
+	private async intentAction(
+		query: string,
+		intent: Intent,
+		params: any,
+	): Promise<{
+		result: any;
+		prompt: string;
+		sseEvent?: {
+			event: string;
+			data: any;
+		};
+	}> {
+		const res: {
+			result: any;
+			prompt: string;
+			sseEvent?: { event: string; data: any };
+		} = { result: {}, prompt: intent.prompt || "" };
+
+		if (intent.name === "mission_start") {
+			const nextMissionId = THREAD_MISSIONS_MAP[params.threadId]
+				? String(Number(THREAD_MISSIONS_MAP[params.threadId]) + 1)
+				: "1";
+			if (Number(nextMissionId) > Object.keys(MOCKED_MISSIONS).length) {
+				res.result = {
+					mission_id: "-1",
+					status: "no_mission_left",
+					reward: undefined,
+					total_reward: THREAD_REWARD_MAP[params.threadId],
+				};
+			} else {
+				res.result = MOCKED_MISSIONS[nextMissionId];
+				THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
+			}
+		} else if (intent.name === "mission_submit_answer") {
+			const curMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			const curMission = MOCKED_MISSIONS[curMissionId];
+			const isCorrect = query
+				.toLowerCase()
+				.includes(curMission.answer.toLowerCase());
+			if (isCorrect) {
+				THREAD_REWARD_MAP[params.threadId] =
+					(THREAD_REWARD_MAP[params.threadId] || 0) + curMission.reward;
+			}
+			res.result = {
+				...curMission,
+				params: {
+					answer_status: isCorrect ? "correct" : "incorrect",
+					total_reward: THREAD_REWARD_MAP[params.threadId],
+				},
+			};
+			if (isCorrect) {
+				res.sseEvent = {
+					event: "mission_reward",
+					data: {
+						reward: res.result.reward,
+						total_reward: res.result.params.total_reward,
+					},
+				};
+			}
+		} else if (intent.name === "mission_stop") {
+			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			res.result = MOCKED_MISSIONS[currentMissionId];
+			THREAD_MISSIONS_MAP[params.threadId] = "0";
+		} else if (intent.name === "mission_skip") {
+			const currentMissionId = THREAD_MISSIONS_MAP[params.threadId];
+			res.result =
+				MOCKED_MISSIONS[
+					String(
+						(Number(currentMissionId) + 1) %
+							Object.keys(MOCKED_MISSIONS).length,
+					)
+				];
+			THREAD_MISSIONS_MAP[params.threadId] = res.result.id;
+		}
+
+		return res;
 	}
 
 	/**
@@ -150,9 +233,14 @@ Please select and answer the most appropriate intent name from the available int
 	private async intentFulfilling(
 		query: string,
 		threadId: string,
+		userId: string,
 		thread?: ThreadObject,
 		intent?: Intent,
 	) {
+		const intentResult = await this.intentAction(query, intent!, {
+			threadId,
+			userId,
+		});
 		// 1. Load agent / system prompt from memory
 		const systemPrompt = `
 Today is ${new Date().toLocaleDateString()}.
@@ -161,8 +249,15 @@ ${this.prompts?.agent || ""}
 
 ${this.prompts?.system || ""}
 
-${intent?.prompt || ""}
-    `;
+<Intent>
+${intent?.name}
+
+${intentResult.prompt}
+
+<Intented Action Result>
+${JSON.stringify(intentResult.result)}
+	`.trim();
+
 		// NOTE(haechan@comcom.ai):
 		// When the `intent.llm` is guaranteed to be consistent, it will be used as a parameter for getModel
 		// const model_name = intent?.llm || "gpt-4o";
@@ -335,7 +430,13 @@ ${intent?.prompt || ""}
 		const intent = await this.intentTriggering(query, thread);
 
 		// 3. intent fulfillment
-		const result = await this.intentFulfilling(query, threadId, thread, intent);
+		const result = await this.intentFulfilling(
+			query,
+			threadId,
+			userId,
+			thread,
+			intent,
+		);
 		await threadMemory?.addMessagesToThread(userId, threadId, [
 			{
 				messageId: randomUUID(),
