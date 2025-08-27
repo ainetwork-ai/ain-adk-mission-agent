@@ -382,7 +382,15 @@ ${JSON.stringify(intentResult.result)}
 					};
 
 					const nextMission = await getMission(userId, token);
-					res.result["nextMission"] = nextMission.mission;
+					if (nextMission.mission.missionId) {
+						res.result["nextMission"] = nextMission.mission;
+					} else if (nextMission.limitReached) {
+						res.result["nextMission"] = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
 				}
 			}
 			if (intent.name === "mission_skip") {
