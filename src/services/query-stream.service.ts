@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { StatusCodes } from "http-status-codes";
-import { USER_REWARD_MAP } from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -353,7 +352,26 @@ ${JSON.stringify(intentResult.result)}
 		} = { result: {}, prompt: intent.prompt || "" };
 
 		try {
-			if (intent.name === "mission_start") {
+			if (intent.name === "welcome_onboarding_success") {
+				const data = await getMission(userId, token);
+				loggers.intentStream.debug("welcome_onboarding_success", {
+					mission: data,
+				});
+				const { missionId, description, content } = data;
+				if (missionId) {
+					res.result["nextMission"] = { missionId, description, content };
+				} else if (data.limitReached) {
+					res.result["nextMission"] = {
+						missionId: "-1",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
+					};
+				}
+			}
+			if (
+				intent.name === "mission_start" ||
+				intent.name === "mission_today_start"
+			) {
 				const data = await getMission(userId, token);
 				loggers.intentStream.debug("mission_start", { mission: data });
 				const { missionId, description, content } = data;
@@ -372,8 +390,6 @@ ${JSON.stringify(intentResult.result)}
 				loggers.intentStream.debug("mission_answer", { answerResult });
 				res.result["answerMetadata"] = answerResult;
 				if (answerResult.isCorrect && !!answerResult.reward) {
-					USER_REWARD_MAP[params.userId] =
-						(USER_REWARD_MAP[params.userId] || 0) + answerResult.reward;
 					res.sseEvent = {
 						event: "mission_reward",
 						data: {

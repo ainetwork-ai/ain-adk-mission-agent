@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { USER_REWARD_MAP } from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -112,13 +111,11 @@ export class QueryService {
 				loggers.intentStream.debug("mission_answer", { data, body });
 				res.result = data;
 				if (data.isCorrect && !!data.reward) {
-					USER_REWARD_MAP[params.userId] =
-						(USER_REWARD_MAP[params.userId] || 0) + data.reward;
 					res.sseEvent = {
 						event: "mission_reward",
 						data: {
 							reward: data.reward,
-							total_reward: USER_REWARD_MAP[params.userId],
+							total_reward: data.totalPoint,
 						},
 					};
 				}
