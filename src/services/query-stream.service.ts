@@ -519,18 +519,8 @@ ${JSON.stringify(intentResult.result)}
 			yield { event: "thread_id", data: metadata };
 		}
 
-		await threadMemory?.addMessagesToThread(userId, threadId, [
-			{
-				messageId: randomUUID(),
-				role: MessageRole.USER,
-				timestamp: queryStartAt,
-				content: { type: "text", parts: [query] },
-			},
-		]);
-
 		// 2. intent triggering
 		const intent = await this.intentTriggering(query, thread, intentName);
-
 		if (intent) {
 			yield {
 				event: "intent",
@@ -539,6 +529,19 @@ ${JSON.stringify(intentResult.result)}
 				},
 			};
 		}
+
+		// 3. add user message to thread
+		await threadMemory?.addMessagesToThread(userId, threadId, [
+			{
+				messageId: randomUUID(),
+				role: MessageRole.USER,
+				timestamp: queryStartAt,
+				content: { type: "text", parts: [query] },
+				metadata: {
+					intent: intent?.name,
+				},
+			},
+		]);
 
 		// 3. intent fulfillment
 		const stream = this.intentFulfilling(
