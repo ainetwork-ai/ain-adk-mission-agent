@@ -78,6 +78,7 @@ export class QueryStreamService {
 
 		if (_intentName) {
 			const intent = await intentMemory.getIntentByName(_intentName);
+			loggers.intentStream.debug("강제 인텐트", { intent });
 			if (intent) {
 				return intent;
 			}
