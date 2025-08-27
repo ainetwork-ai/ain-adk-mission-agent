@@ -354,8 +354,8 @@ ${JSON.stringify(intentResult.result)}
 		try {
 			if (intent.name === "mission_start") {
 				const data = await getMission(userId, token);
-				loggers.intentStream.debug("mission_start", { mission: data.mission });
-				const { missionId, description, content } = data.mission;
+				loggers.intentStream.debug("mission_start", { mission: data });
+				const { missionId, description, content } = data;
 				if (missionId) {
 					res.result = { missionId, description, content };
 				} else if (data.limitReached) {
@@ -382,8 +382,12 @@ ${JSON.stringify(intentResult.result)}
 					};
 
 					const nextMission = await getMission(userId, token);
-					if (nextMission.mission.missionId) {
-						res.result["nextMission"] = nextMission.mission;
+					if (nextMission.missionId) {
+						res.result["nextMission"] = {
+							missionId: nextMission.missionId,
+							description: nextMission.description,
+							content: nextMission.content,
+						};
 					} else if (nextMission.limitReached) {
 						res.result["nextMission"] = {
 							missionId: "-1",

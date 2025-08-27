@@ -11,7 +11,9 @@ export async function getMission(userId: string, token: string) {
 		},
 	);
 
-	return response.json();
+	const data = await response.json();
+	const { missionId, description, content, limitReached } = data.mission;
+	return { missionId, description, content, limitReached };
 }
 
 export async function submitAnswer(
