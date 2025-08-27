@@ -24,6 +24,12 @@ import {
 	TOOL_PROTOCOL_TYPE,
 } from "@/types/tool.js";
 import { loggers } from "@/utils/logger.js";
+import {
+	getMission,
+	getRemainMissionCount,
+	skipMission,
+	submitAnswer,
+} from "./mission.service";
 
 /**
  * Service for processing user queries through the agent's AI pipeline.
@@ -339,7 +345,6 @@ ${JSON.stringify(intentResult.result)}
 			data: any;
 		};
 	}> {
-		const serverUrl = process.env.SERVER_URL;
 		const { userId, token } = params;
 		const res: {
 			result: any;
@@ -349,59 +354,73 @@ ${JSON.stringify(intentResult.result)}
 
 		try {
 			if (intent.name === "mission_start") {
-				// FIXME(yoojin): category will be removed
-				const response = await fetch(
-					`${serverUrl}/api/mission/random?addr=${userId}`,
-					{
-						method: "GET",
-						headers: {
-							Authorization: `Bearer ${token}`,
-						},
-					},
-				);
-				const data = await response.json();
-				loggers.intentStream.debug("mission_start", { mission: data.mission });
-				const { missionId, description, content } = data.mission;
+				const data = await getMission(userId, token);
+				loggers.intentStream.debug("mission_start", { mission: data });
+				const { missionId, description, content } = data;
 				if (missionId) {
 					res.result = { missionId, description, content };
-				} else {
+				} else if (data.limitReached) {
 					res.result = {
 						missionId: "-1",
-						description: "No mission left",
-						content: "No mission left",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
 					};
 				}
-			} else if (intent.name === "mission_submit_answer") {
-				const body = {
-					missionId: "0000025", // FIXME(yoojin): temp mission id
-					answer: query,
-				};
-				const response = await fetch(`${serverUrl}/api/mission/answer`, {
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(body),
-				});
-				const data = await response.json();
-				loggers.intentStream.debug("mission_answer", { data, body });
-				res.result = data;
-				if (data.isCorrect && !!data.reward) {
+			}
+			if (intent.name === "mission_submit_answer") {
+				const answerResult = await submitAnswer(userId, query, token);
+				loggers.intentStream.debug("mission_answer", { answerResult });
+				res.result["answerMetadata"] = answerResult;
+				if (answerResult.isCorrect && !!answerResult.reward) {
 					USER_REWARD_MAP[params.userId] =
-						(USER_REWARD_MAP[params.userId] || 0) + data.reward;
+						(USER_REWARD_MAP[params.userId] || 0) + answerResult.reward;
 					res.sseEvent = {
 						event: "mission_reward",
 						data: {
-							reward: data.reward,
+							reward: answerResult.reward,
 							total_reward: USER_REWARD_MAP[params.userId],
 						},
 					};
+
+					const nextMission = await getMission(userId, token);
+					if (nextMission.missionId) {
+						res.result["nextMission"] = {
+							missionId: nextMission.missionId,
+							description: nextMission.description,
+							content: nextMission.content,
+						};
+					} else if (nextMission.limitReached) {
+						res.result["nextMission"] = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
 				}
-			} else if (intent.name === "mission_stop") {
-				// NOTE(yoojin): will be implemented later
-			} else if (intent.name === "mission_skip") {
-				// NOTE(yoojin): will be implemented later
+			}
+			if (intent.name === "mission_skip") {
+				const isAssigned = await skipMission(userId, token);
+				loggers.intentStream.debug("mission_skip", { isAssigned });
+				if (isAssigned) {
+					const data = await getMission(userId, token);
+					loggers.intentStream.debug("mission_start", { mission: data });
+					const { missionId, description, content } = data;
+					if (missionId) {
+						res.result = { missionId, description, content };
+					} else if (data.limitReached) {
+						res.result = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission assigned",
+						content: "No mission assigned",
+					};
+				}
 			}
 		} catch (err) {
 			loggers.intentStream.error("intentAction", { err });
