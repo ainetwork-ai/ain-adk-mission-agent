@@ -378,7 +378,7 @@ ${JSON.stringify(intentResult.result)}
 						event: "mission_reward",
 						data: {
 							reward: answerResult.reward,
-							total_reward: USER_REWARD_MAP[params.userId],
+							total_reward: answerResult.total_reward,
 						},
 					};
 
