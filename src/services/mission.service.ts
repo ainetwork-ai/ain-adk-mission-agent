@@ -50,3 +50,18 @@ export async function getRemainMissionCount(userId: string, token: string) {
 
 	return response.json();
 }
+
+export async function skipMission(userId: string, token: string) {
+	const response = await fetch(`${SERVER_URL}/mission/skip`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${token}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ addr: userId }),
+	});
+
+	const data = await response.json();
+	const { isAssigned } = data;
+	return isAssigned;
+}

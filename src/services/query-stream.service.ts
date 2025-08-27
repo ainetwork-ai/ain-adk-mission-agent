@@ -27,6 +27,7 @@ import { loggers } from "@/utils/logger.js";
 import {
 	getMission,
 	getRemainMissionCount,
+	skipMission,
 	submitAnswer,
 } from "./mission.service";
 
@@ -398,13 +399,29 @@ ${JSON.stringify(intentResult.result)}
 				}
 			}
 			if (intent.name === "mission_skip") {
-				// NOTE(yoojin): will be implemented later
+				const isAssigned = await skipMission(userId, token);
+				loggers.intentStream.debug("mission_skip", { isAssigned });
+				if (isAssigned) {
+					const data = await getMission(userId, token);
+					loggers.intentStream.debug("mission_start", { mission: data });
+					const { missionId, description, content } = data;
+					if (missionId) {
+						res.result = { missionId, description, content };
+					} else if (data.limitReached) {
+						res.result = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission assigned",
+						content: "No mission assigned",
+					};
+				}
 			}
-			// if (intent.name === "mission_stop") {
-			// 	const data = await getRemainMissionCount(userId, token);
-			// 	loggers.intentStream.debug("mission_stop", { data });
-			// 	res.result = data;
-			// }
 		} catch (err) {
 			loggers.intentStream.error("intentAction", { err });
 		}
