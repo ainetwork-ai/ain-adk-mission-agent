@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { StatusCodes } from "http-status-codes";
-import { USER_REWARD_MAP } from "@/mocked/missions";
 import type {
 	A2AModule,
 	MCPModule,
@@ -173,13 +172,12 @@ Please select and answer the most appropriate intent name from the available int
 		thread?: ThreadObject,
 		intent?: Intent,
 	): AsyncGenerator<StreamEvent> {
-		loggers.intentStream.debug("@@@@@@@ intent", { intent });
 		const intentResult = await this.intentAction(query, intent!, {
 			threadId,
 			userId,
 			token,
 		});
-		loggers.intentStream.debug("intentResult", { intentResult });
+		loggers.intentStream.debug("Intent Action Result", { intentResult });
 		if (intentResult.sseEvent) {
 			yield {
 				event: intentResult.sseEvent.event as "mission_reward",
@@ -202,7 +200,7 @@ ${intentResult.prompt}
 <Intented Action Result>
 ${JSON.stringify(intentResult.result)}
 	`.trim();
-		loggers.intentStream.debug("systemPrompt", { systemPrompt });
+
 		const modelInstance = this.modelModule.getModel();
 		const messages = modelInstance.generateMessages({
 			query,
@@ -353,9 +351,24 @@ ${JSON.stringify(intentResult.result)}
 		} = { result: {}, prompt: intent.prompt || "" };
 
 		try {
-			if (intent.name === "mission_start") {
+			if (intent.name === "welcome_onboarding_success") {
 				const data = await getMission(userId, token);
-				loggers.intentStream.debug("mission_start", { mission: data });
+				const { missionId, description, content } = data;
+				if (missionId) {
+					res.result["nextMission"] = { missionId, description, content };
+				} else if (data.limitReached) {
+					res.result["nextMission"] = {
+						missionId: "-1",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
+					};
+				}
+			}
+			if (
+				intent.name === "mission_start" ||
+				intent.name === "mission_today_start"
+			) {
+				const data = await getMission(userId, token);
 				const { missionId, description, content } = data;
 				if (missionId) {
 					res.result = { missionId, description, content };
@@ -369,16 +382,13 @@ ${JSON.stringify(intentResult.result)}
 			}
 			if (intent.name === "mission_submit_answer") {
 				const answerResult = await submitAnswer(userId, query, token);
-				loggers.intentStream.debug("mission_answer", { answerResult });
 				res.result["answerMetadata"] = answerResult;
 				if (answerResult.isCorrect && !!answerResult.reward) {
-					USER_REWARD_MAP[params.userId] =
-						(USER_REWARD_MAP[params.userId] || 0) + answerResult.reward;
 					res.sseEvent = {
 						event: "mission_reward",
 						data: {
 							reward: answerResult.reward,
-							total_reward: USER_REWARD_MAP[params.userId],
+							total_reward: answerResult.totalPoint,
 						},
 					};
 
@@ -400,10 +410,8 @@ ${JSON.stringify(intentResult.result)}
 			}
 			if (intent.name === "mission_skip") {
 				const isAssigned = await skipMission(userId, token);
-				loggers.intentStream.debug("mission_skip", { isAssigned });
 				if (isAssigned) {
 					const data = await getMission(userId, token);
-					loggers.intentStream.debug("mission_start", { mission: data });
 					const { missionId, description, content } = data;
 					if (missionId) {
 						res.result = { missionId, description, content };
@@ -423,7 +431,7 @@ ${JSON.stringify(intentResult.result)}
 				}
 			}
 		} catch (err) {
-			loggers.intentStream.error("intentAction", { err });
+			loggers.intentStream.error("Error in intentAction", { err });
 		}
 		return res;
 	}
@@ -575,7 +583,6 @@ ${JSON.stringify(intentResult.result)}
 		let finalResponseText = "";
 		for await (const event of stream) {
 			if (event.event === "text_chunk" && event.data.delta) {
-				loggers.intentStream.debug("text_chunk", { event });
 				finalResponseText += event.data.delta;
 			} else if (event.event === "tool_start") {
 				await threadMemory?.addMessagesToThread(userId, threadId, [
@@ -611,6 +618,8 @@ ${JSON.stringify(intentResult.result)}
 			}
 			yield event;
 		}
+
+		loggers.intentStream.info("finalResponseText", { finalResponseText });
 
 		await threadMemory?.addMessagesToThread(userId, threadId, [
 			{
