@@ -1,5 +1,3 @@
-import { loggers } from "@/utils/logger";
-
 const SERVER_URL = process.env.SERVER_URL;
 
 export async function getMission(userId: string, token: string) {
@@ -64,7 +62,6 @@ export async function skipMission(userId: string, token: string) {
 	});
 
 	const data = await response.json();
-	loggers.intentStream.debug("skipMission", { data });
 	const { isAssigned } = data.result;
 	return isAssigned;
 }
