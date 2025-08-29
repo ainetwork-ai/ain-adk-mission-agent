@@ -16,6 +16,8 @@ export class AuthMiddleware {
 				const authRes: AuthResponse = await this.auth.authenticate(req, res);
 				if (authRes.isAuthenticated) {
 					res.locals.userId = authRes.userId;
+					// NOTE(yoojin): It would be better to communicate with the mission server using x-api-key instead of bringing the Bearer token internally.
+					res.locals.token = authRes.token;
 					next();
 				} else {
 					const error: AinHttpError = new AinHttpError(

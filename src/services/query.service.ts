@@ -50,6 +50,86 @@ export class QueryService {
 		this.prompts = prompts;
 	}
 
+	private async intentAction(
+		query: string,
+		intent: Intent,
+		params: any,
+	): Promise<{
+		result: any;
+		prompt: string;
+		sseEvent?: {
+			event: string;
+			data: any;
+		};
+	}> {
+		const serverUrl = process.env.SERVER_URL;
+		const { userId, token } = params;
+		const res: {
+			result: any;
+			prompt: string;
+			sseEvent?: { event: string; data: any };
+		} = { result: {}, prompt: intent.prompt || "" };
+
+		try {
+			if (intent.name === "mission_start") {
+				// FIXME(yoojin): category will be removed
+				const response = await fetch(
+					`${serverUrl}/api/mission/random?addr=${userId}`,
+					{
+						method: "GET",
+						headers: {
+							Authorization: `Bearer ${token}`,
+						},
+					},
+				);
+				const data = await response.json();
+				loggers.intentStream.debug("mission_start", { mission: data.mission });
+				const { missionId, description, content } = data.mission;
+				if (missionId) {
+					res.result = { missionId, description, content };
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission left",
+						content: "No mission left",
+					};
+				}
+			} else if (intent.name === "mission_submit_answer") {
+				const body = {
+					missionId: "0000025", // FIXME(yoojin): temp mission id
+					answer: query,
+				};
+				const response = await fetch(`${serverUrl}/api/mission/answer`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(body),
+				});
+				const data = await response.json();
+				loggers.intentStream.debug("mission_answer", { data, body });
+				res.result = data;
+				if (data.isCorrect && !!data.reward) {
+					res.sseEvent = {
+						event: "mission_reward",
+						data: {
+							reward: data.reward,
+							total_reward: data.totalPoint,
+						},
+					};
+				}
+			} else if (intent.name === "mission_stop") {
+				// NOTE(yoojin): will be implemented later
+			} else if (intent.name === "mission_skip") {
+				// NOTE(yoojin): will be implemented later
+			}
+		} catch (err) {
+			loggers.intentStream.error("intentAction", { err });
+		}
+		return res;
+	}
+
 	/**
 	 * Detects the intent from context.
 	 *
@@ -150,9 +230,14 @@ Please select and answer the most appropriate intent name from the available int
 	private async intentFulfilling(
 		query: string,
 		threadId: string,
+		userId: string,
 		thread?: ThreadObject,
 		intent?: Intent,
 	) {
+		const intentResult = await this.intentAction(query, intent!, {
+			threadId,
+			userId,
+		});
 		// 1. Load agent / system prompt from memory
 		const systemPrompt = `
 Today is ${new Date().toLocaleDateString()}.
@@ -161,8 +246,15 @@ ${this.prompts?.agent || ""}
 
 ${this.prompts?.system || ""}
 
-${intent?.prompt || ""}
-    `;
+<Intent>
+${intent?.name}
+
+${intentResult.prompt}
+
+<Intented Action Result>
+${JSON.stringify(intentResult.result)}
+	`.trim();
+
 		// NOTE(haechan@comcom.ai):
 		// When the `intent.llm` is guaranteed to be consistent, it will be used as a parameter for getModel
 		// const model_name = intent?.llm || "gpt-4o";
@@ -335,7 +427,13 @@ ${intent?.prompt || ""}
 		const intent = await this.intentTriggering(query, thread);
 
 		// 3. intent fulfillment
-		const result = await this.intentFulfilling(query, threadId, thread, intent);
+		const result = await this.intentFulfilling(
+			query,
+			threadId,
+			userId,
+			thread,
+			intent,
+		);
 		await threadMemory?.addMessagesToThread(userId, threadId, [
 			{
 				messageId: randomUUID(),
@@ -351,6 +449,6 @@ ${intent?.prompt || ""}
 			},
 		]);
 
-		return { content: result.response };
+		return { content: result.response, intent: intent?.name };
 	}
 }

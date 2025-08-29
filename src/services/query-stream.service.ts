@@ -23,6 +23,12 @@ import {
 	TOOL_PROTOCOL_TYPE,
 } from "@/types/tool.js";
 import { loggers } from "@/utils/logger.js";
+import {
+	getMission,
+	getRemainMissionCount,
+	skipMission,
+	submitAnswer,
+} from "./mission.service";
 
 /**
  * Service for processing user queries through the agent's AI pipeline.
@@ -62,11 +68,19 @@ export class QueryStreamService {
 	private async intentTriggering(
 		query: string,
 		thread: ThreadObject | undefined,
+		_intentName?: string,
 	): Promise<Intent | undefined> {
 		const modelInstance = this.modelModule.getModel();
 		const intentMemory = this.memoryModule?.getIntentMemory();
 		if (!intentMemory) {
 			return undefined;
+		}
+
+		if (_intentName) {
+			const intent = await intentMemory.getIntentByName(_intentName);
+			if (intent) {
+				return intent;
+			}
 		}
 
 		// 인텐트 목록 가져오기
@@ -153,9 +167,24 @@ Please select and answer the most appropriate intent name from the available int
 	public async *intentFulfilling(
 		query: string,
 		threadId: string,
+		userId: string,
+		token: string,
 		thread?: ThreadObject,
 		intent?: Intent,
 	): AsyncGenerator<StreamEvent> {
+		const intentResult = await this.intentAction(query, intent!, {
+			threadId,
+			userId,
+			token,
+		});
+		loggers.intentStream.debug("Intent Action Result", { intentResult });
+		if (intentResult.sseEvent) {
+			yield {
+				event: intentResult.sseEvent.event as "mission_reward",
+				data: intentResult.sseEvent.data,
+			};
+		}
+
 		const systemPrompt = `
 Today is ${new Date().toLocaleDateString()}.
 
@@ -163,7 +192,13 @@ ${this.prompts?.agent || ""}
 
 ${this.prompts?.system || ""}
 
-${intent?.prompt || ""}
+<Intent>
+${intent?.name}
+
+${intentResult.prompt}
+
+<Intented Action Result>
+${JSON.stringify(intentResult.result)}
 	`.trim();
 
 		const modelInstance = this.modelModule.getModel();
@@ -296,6 +331,111 @@ ${intent?.prompt || ""}
 		}
 	}
 
+	private async intentAction(
+		query: string,
+		intent: Intent,
+		params: any,
+	): Promise<{
+		result: any;
+		prompt: string;
+		sseEvent?: {
+			event: string;
+			data: any;
+		};
+	}> {
+		const { userId, token } = params;
+		const res: {
+			result: any;
+			prompt: string;
+			sseEvent?: { event: string; data: any };
+		} = { result: {}, prompt: intent.prompt || "" };
+
+		try {
+			if (intent.name === "welcome_onboarding_success") {
+				const data = await getMission(userId, token);
+				const { missionId, description, content } = data;
+				if (missionId) {
+					res.result["nextMission"] = { missionId, description, content };
+				} else if (data.limitReached) {
+					res.result["nextMission"] = {
+						missionId: "-1",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
+					};
+				}
+			}
+			if (
+				intent.name === "mission_start" ||
+				intent.name === "mission_today_start"
+			) {
+				const data = await getMission(userId, token);
+				const { missionId, description, content } = data;
+				if (missionId) {
+					res.result = { missionId, description, content };
+				} else if (data.limitReached) {
+					res.result = {
+						missionId: "-1",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
+					};
+				}
+			}
+			if (intent.name === "mission_submit_answer") {
+				const answerResult = await submitAnswer(userId, query, token);
+				res.result["answerMetadata"] = answerResult;
+				if (answerResult.isCorrect && !!answerResult.reward) {
+					res.sseEvent = {
+						event: "mission_reward",
+						data: {
+							reward: answerResult.reward,
+							total_reward: answerResult.totalPoint,
+						},
+					};
+
+					const nextMission = await getMission(userId, token);
+					if (nextMission.missionId) {
+						res.result["nextMission"] = {
+							missionId: nextMission.missionId,
+							description: nextMission.description,
+							content: nextMission.content,
+						};
+					} else if (nextMission.limitReached) {
+						res.result["nextMission"] = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
+				}
+			}
+			if (intent.name === "mission_skip") {
+				const isAssigned = await skipMission(userId, token);
+				if (isAssigned) {
+					const data = await getMission(userId, token);
+					const { missionId, description, content } = data;
+					if (missionId) {
+						res.result = { missionId, description, content };
+					} else if (data.limitReached) {
+						res.result = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission assigned",
+						content: "No mission assigned",
+					};
+				}
+			}
+		} catch (err) {
+			loggers.intentStream.error("Error in intentAction", { err });
+		}
+		return res;
+	}
+
 	/**
 	 * Generates a title for the conversation based on the query.
 	 *
@@ -348,10 +488,38 @@ ${intent?.prompt || ""}
 			threadId?: string;
 		},
 		query: string,
+		token?: string,
+		intentName?: string,
 	): AsyncGenerator<StreamEvent> {
 		const { type, userId } = threadMetadata;
 		const queryStartAt = Date.now();
 		const threadMemory = this.memoryModule?.getThreadMemory();
+
+		// Debuging Messages
+		const isTestMessage = query.startsWith("##");
+		if (isTestMessage) {
+			const testMessage = query.split("##")[1].trim();
+			if (testMessage === "reward") {
+				const reward = 10;
+				yield {
+					event: "mission_reward",
+					data: {
+						reward,
+						total_reward: 10,
+					},
+				};
+			}
+			if (testMessage.toLowerCase() === "reset") {
+				await threadMemory?.deleteThread(userId, threadMetadata.threadId!);
+				yield {
+					event: "text_chunk",
+					data: {
+						delta: "Thread deleted",
+					},
+				};
+			}
+			return;
+		}
 
 		// 1. Load or create thread
 		let threadId = threadMetadata.threadId;
@@ -377,25 +545,44 @@ ${intent?.prompt || ""}
 			yield { event: "thread_id", data: metadata };
 		}
 
+		// 2. intent triggering
+		const intent = await this.intentTriggering(query, thread, intentName);
+		if (intent) {
+			loggers.intentStream.info("Intent", { intent });
+			yield {
+				event: "intent",
+				data: {
+					intent: intent.name,
+				},
+			};
+		}
+
+		// 3. add user message to thread
 		await threadMemory?.addMessagesToThread(userId, threadId, [
 			{
 				messageId: randomUUID(),
 				role: MessageRole.USER,
 				timestamp: queryStartAt,
 				content: { type: "text", parts: [query] },
+				metadata: {
+					intent: intent?.name,
+				},
 			},
 		]);
 
-		// 2. intent triggering
-		const intent = await this.intentTriggering(query, thread);
-
 		// 3. intent fulfillment
-		const stream = this.intentFulfilling(query, threadId, thread, intent);
+		const stream = this.intentFulfilling(
+			query,
+			threadId,
+			userId,
+			token!,
+			thread,
+			intent,
+		);
 
 		let finalResponseText = "";
 		for await (const event of stream) {
 			if (event.event === "text_chunk" && event.data.delta) {
-				loggers.intentStream.debug("text_chunk", { event });
 				finalResponseText += event.data.delta;
 			} else if (event.event === "tool_start") {
 				await threadMemory?.addMessagesToThread(userId, threadId, [
@@ -431,6 +618,8 @@ ${intent?.prompt || ""}
 			}
 			yield event;
 		}
+
+		loggers.intentStream.info("finalResponseText", { finalResponseText });
 
 		await threadMemory?.addMessagesToThread(userId, threadId, [
 			{
