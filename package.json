@@ -1,8 +1,8 @@
 {
-	"name": "@ainetwork/adk",
-	"version": "0.2.5",
-	"description": "AI Network Agent Development Kit",
-	"repository": "git@github.com:ainetwork-ai/ain-adk.git",
+	"name": "@ainetwork/adk-mission-agent",
+	"version": "1.0.0",
+	"description": "AI Network Mission Agent Development Kit",
+	"repository": "git@github.com:ainetwork-ai/ain-adk-mission-agent.git",
 	"author": "AI Network (https://ainetwork.ai)",
 	"type": "module",
 	"engines": {
