@@ -21,6 +21,7 @@ import {
 	TOOL_PROTOCOL_TYPE,
 } from "@/types/tool.js";
 import { loggers } from "@/utils/logger.js";
+import { getMission, skipMission, submitAnswer } from "./mission.service";
 
 /**
  * Service for processing user queries through the agent's AI pipeline.
@@ -71,61 +72,79 @@ export class QueryService {
 		} = { result: {}, prompt: intent.prompt || "" };
 
 		try {
-			if (intent.name === "mission_start") {
-				// FIXME(yoojin): category will be removed
-				const response = await fetch(
-					`${serverUrl}/api/mission/random?addr=${userId}`,
-					{
-						method: "GET",
-						headers: {
-							Authorization: `Bearer ${token}`,
-						},
-					},
-				);
-				const data = await response.json();
-				loggers.intentStream.debug("mission_start", { mission: data.mission });
-				const { missionId, description, content } = data.mission;
+			if (
+				intent.name === "mission_start" ||
+				intent.name === "mission_today_start" ||
+				intent.name === "welcome_back"
+			) {
+				const data = await getMission(userId, token);
+				const { missionId, description, content } = data;
 				if (missionId) {
 					res.result = { missionId, description, content };
-				} else {
+				} else if (data.limitReached) {
 					res.result = {
 						missionId: "-1",
-						description: "No mission left",
-						content: "No mission left",
+						description: "Mission limit reached",
+						content: "Mission limit reached",
 					};
 				}
 			} else if (intent.name === "mission_submit_answer") {
-				const body = {
-					missionId: "0000025", // FIXME(yoojin): temp mission id
-					answer: query,
-				};
-				const response = await fetch(`${serverUrl}/api/mission/answer`, {
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${token}`,
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(body),
-				});
-				const data = await response.json();
-				loggers.intentStream.debug("mission_answer", { data, body });
-				res.result = data;
-				if (data.isCorrect && !!data.reward) {
+				const answerResult = await submitAnswer(userId, query, token);
+				res.result.answerMetadata = answerResult;
+				if (answerResult.isCorrect && !!answerResult.reward) {
 					res.sseEvent = {
 						event: "mission_reward",
 						data: {
-							reward: data.reward,
-							total_reward: data.totalPoint,
+							reward: answerResult.reward,
+							total_reward: answerResult.totalPoint,
 						},
 					};
+
+					const nextMission = await getMission(userId, token);
+					if (nextMission.missionId) {
+						res.result.nextMission = {
+							missionId: nextMission.missionId,
+							description: nextMission.description,
+							content: nextMission.content,
+						};
+					} else if (nextMission.limitReached) {
+						res.result.nextMission = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
 				}
-			} else if (intent.name === "mission_stop") {
-				// NOTE(yoojin): will be implemented later
 			} else if (intent.name === "mission_skip") {
-				// NOTE(yoojin): will be implemented later
+				const isAssigned = await skipMission(userId, token);
+				if (isAssigned) {
+					const data = await getMission(userId, token);
+					const { missionId, description, content } = data;
+					if (missionId) {
+						res.result = { missionId, description, content };
+					} else if (data.limitReached) {
+						res.result = {
+							missionId: "-1",
+							description: "Mission limit reached",
+							content: "Mission limit reached",
+						};
+					}
+				} else {
+					res.result = {
+						missionId: "-1",
+						description: "No mission assigned",
+						content: "No mission assigned",
+					};
+				}
 			}
 		} catch (err) {
-			loggers.intentStream.error("intentAction", { err });
+			if (err instanceof Error) {
+				loggers.intentStream.error("Error in intentAction", {
+					Error: err.message,
+				});
+			} else {
+				loggers.intentStream.error("Error in intentAction", { err });
+			}
 		}
 		return res;
 	}

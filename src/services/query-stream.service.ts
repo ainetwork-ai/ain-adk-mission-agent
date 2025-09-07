@@ -185,6 +185,11 @@ Please select and answer the most appropriate intent name from the available int
 			};
 		}
 
+		const partialThread = thread;
+		if (!!thread && !!partialThread && !!thread.messages) {
+			partialThread.messages = thread.messages.slice(-6);
+		}
+
 		const systemPrompt = `
 Today is ${new Date().toLocaleDateString()}.
 
@@ -204,7 +209,7 @@ ${JSON.stringify(intentResult.result)}
 		const modelInstance = this.modelModule.getModel();
 		const messages = modelInstance.generateMessages({
 			query,
-			thread,
+			thread: partialThread,
 			systemPrompt: systemPrompt.trim(),
 		});
 
@@ -366,7 +371,8 @@ ${JSON.stringify(intentResult.result)}
 			}
 			if (
 				intent.name === "mission_start" ||
-				intent.name === "mission_today_start"
+				intent.name === "mission_today_start" ||
+				intent.name === "welcome_back"
 			) {
 				const data = await getMission(userId, token);
 				const { missionId, description, content } = data;
@@ -431,7 +437,13 @@ ${JSON.stringify(intentResult.result)}
 				}
 			}
 		} catch (err) {
-			loggers.intentStream.error("Error in intentAction", { err });
+			if (err instanceof Error) {
+				loggers.intentStream.error("Error in intentAction", {
+					Error: err.message,
+				});
+			} else {
+				loggers.intentStream.error("Error in intentAction", { Error: err });
+			}
 		}
 		return res;
 	}
@@ -494,31 +506,32 @@ ${JSON.stringify(intentResult.result)}
 		const { type, userId } = threadMetadata;
 		const queryStartAt = Date.now();
 		const threadMemory = this.memoryModule?.getThreadMemory();
-
-		// Debuging Messages
-		const isTestMessage = query.startsWith("##");
-		if (isTestMessage) {
-			const testMessage = query.split("##")[1].trim();
-			if (testMessage === "reward") {
-				const reward = 10;
-				yield {
-					event: "mission_reward",
-					data: {
-						reward,
-						total_reward: 10,
-					},
-				};
+		if (process.env.NODE_ENV !== "production") {
+			// Debuging Messages
+			const isTestMessage = query.startsWith("##");
+			if (isTestMessage) {
+				const testMessage = query.split("##")[1].trim();
+				if (testMessage === "reward") {
+					const reward = 10;
+					yield {
+						event: "mission_reward",
+						data: {
+							reward,
+							total_reward: 10,
+						},
+					};
+				}
+				if (testMessage.toLowerCase() === "reset") {
+					await threadMemory?.deleteThread(userId, threadMetadata.threadId!);
+					yield {
+						event: "text_chunk",
+						data: {
+							delta: "Thread deleted",
+						},
+					};
+				}
+				return;
 			}
-			if (testMessage.toLowerCase() === "reset") {
-				await threadMemory?.deleteThread(userId, threadMetadata.threadId!);
-				yield {
-					event: "text_chunk",
-					data: {
-						delta: "Thread deleted",
-					},
-				};
-			}
-			return;
 		}
 
 		// 1. Load or create thread
@@ -530,19 +543,31 @@ ${JSON.stringify(intentResult.result)}
 				throw new AinHttpError(StatusCodes.NOT_FOUND, "Thread not found");
 			}
 		} else {
-			threadId = randomUUID();
-			const title = await this.generateTitle(query);
+			// One user can have only one thread. If the thread is exist, use it.
+			const threads = await threadMemory?.listThreads(userId);
+			if (threads && threads.length > 0) {
+				loggers.intentStream.debug("threads_selected", { threads });
+				threadId = threads[0].threadId;
+				thread = await threadMemory?.getThread(userId, threadId);
+				if (!thread) {
+					throw new AinHttpError(StatusCodes.NOT_FOUND, "Thread not found");
+				}
+				yield { event: "thread_id", data: threads[0] };
+			} else {
+				threadId = randomUUID();
+				const title = await this.generateTitle(query);
 
-			const metadata =
-				(await threadMemory?.createThread(type, userId, threadId, title)) ||
-				({
-					type,
-					threadId,
-					title,
-					updatedAt: Date.now(),
-				} as ThreadMetadata);
-			loggers.intentStream.info("Create new thread", { metadata });
-			yield { event: "thread_id", data: metadata };
+				const metadata =
+					(await threadMemory?.createThread(type, userId, threadId, title)) ||
+					({
+						type,
+						threadId,
+						title,
+						updatedAt: Date.now(),
+					} as ThreadMetadata);
+				loggers.intentStream.info("Create new thread", { metadata });
+				yield { event: "thread_id", data: metadata };
+			}
 		}
 
 		// 2. intent triggering
